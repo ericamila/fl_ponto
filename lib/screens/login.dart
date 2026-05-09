@@ -1,15 +1,29 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ponto_eletronico/services/auth_service.dart';
+import 'package:ponto_eletronico/services/firestore_service.dart';
+import 'package:ponto_eletronico/services/session_service.dart';
 
 import '../util/format_txt.dart';
-import '../main.dart';
 
-class LoginScreen extends StatelessWidget {
-  LoginScreen({super.key});
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
 
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _tokenController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _tokenController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +34,7 @@ class LoginScreen extends StatelessWidget {
         margin: const EdgeInsets.all(32),
         decoration: const BoxDecoration(color: Colors.white),
         child: Form(
+          key: _formKey,
           child: Center(
             child: SingleChildScrollView(
               child: Column(
@@ -29,6 +44,7 @@ class LoginScreen extends StatelessWidget {
                     size: 64,
                     color: Colors.blueGrey,
                   ),
+                  const SizedBox(height: 16),
                   const Text("Insira o Token"),
                   TextFormField(
                     validator: (value) {
@@ -51,18 +67,15 @@ class LoginScreen extends StatelessWidget {
                       label: Text("Nome"),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.all(10.0),
-                    child: FilledButton(
-                        onPressed: () {
-                          saveUserInfos(
-                            context: context,
-                            token: _tokenController.text,
-                            name: _nameController.text,
-                          );
-                        },
-                        child: const Text("Continuar")),
-                  ),
+                  const SizedBox(height: 24),
+                  _isLoading
+                      ? const CircularProgressIndicator()
+                      : Padding(
+                          padding: const EdgeInsets.all(10.0),
+                          child: FilledButton(
+                              onPressed: _login,
+                              child: const Text("Continuar")),
+                        ),
                 ],
               ),
             ),
@@ -72,45 +85,47 @@ class LoginScreen extends StatelessWidget {
     );
   }
 
-  saveUserInfos({
-    required BuildContext context,
-    required String token,
-    required String name,
-  }) async {
-    FirebaseFirestore db = FirebaseFirestore.instance;
-    SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
-    sharedPreferences.setString("accessToken", token).then(
-      (result) {
-        if (result) {
-          db
-              .collection("accessId")
-              .doc(token)
-              .set({
-                "accessToken": token,
-                "name": name,
-              })
-              .then((value) => Navigator.pushReplacementNamed(context, "home"))
-              .onError(
-                (error, stackTrace) => showSnackBar(
-                    context: context, message: error.toString(), sucess: false),
-              );
-          kToken = token;
-        }
-      },
-    );
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
 
-    return token;
+    setState(() => _isLoading = true);
+
+    final token = _tokenController.text.trim();
+    final name = _nameController.text.trim();
+
+    try {
+      final firestoreService = FirestoreService();
+      final authService = AuthService();
+      final sessionService = SessionService();
+
+      await firestoreService.saveUserInfo(token, name);
+      await authService.saveUser(token, name);
+      sessionService.setSession(token, name);
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, "home");
+      }
+    } catch (e) {
+      if (mounted) {
+        showSnackBar(
+            context: context, message: "Erro ao entrar: $e", sucess: false);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 }
 
-void showSnackBar({
-    required BuildContext context,
+void showSnackBar(
+    {required BuildContext context,
     required String message,
     required bool sucess}) {
-    final snackBar = SnackBar(
-      content: Text(message),
-      backgroundColor: (sucess) ? Colors.teal : Colors.orangeAccent,
-      behavior: SnackBarBehavior.floating,
+  final snackBar = SnackBar(
+    content: Text(message),
+    backgroundColor: (sucess) ? Colors.teal : Colors.orangeAccent,
+    behavior: SnackBarBehavior.floating,
   );
   ScaffoldMessenger.of(context).showSnackBar(snackBar);
 }

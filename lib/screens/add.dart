@@ -1,9 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:ponto_eletronico/extensions/date_time.dart';
+import 'package:ponto_eletronico/model/registro.dart';
+import 'package:ponto_eletronico/services/firestore_service.dart';
+import 'package:ponto_eletronico/services/session_service.dart';
 import 'package:ponto_eletronico/util/app_colors.dart';
 
-import '../main.dart';
 import '../util/common.dart';
 
 class FormRegister extends StatefulWidget {
@@ -54,7 +55,7 @@ class _FormRegisterState extends State<FormRegister> {
             children: [
               TextFormField(
                 validator: (value) {
-                  if (value!.isEmpty) {
+                  if (value == null || value.isEmpty) {
                     return 'Preenchimento obrigatório';
                   }
                   return null;
@@ -69,15 +70,13 @@ class _FormRegisterState extends State<FormRegister> {
                   ),
                 ),
                 readOnly: true,
-                onTap: () {
-                  _selectDate();
-                },
+                onTap: _selectDate,
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: TextFormField(
                   validator: (value) {
-                    if (value!.isEmpty) {
+                    if (value == null || value.isEmpty) {
                       return 'Preenchimento obrigatório';
                     }
                     return null;
@@ -92,13 +91,7 @@ class _FormRegisterState extends State<FormRegister> {
                     ),
                   ),
                   readOnly: true,
-                  onTap: () {
-                    _selectTime();
-                  },
-                  keyboardType: TextInputType.datetime,
-                  inputFormatters: const [
-                    //TimeText(),
-                  ],
+                  onTap: _selectTime,
                 ),
               ),
               Row(
@@ -106,9 +99,8 @@ class _FormRegisterState extends State<FormRegister> {
                 children: [
                   const Text('Entrada'),
                   Switch(
-                    activeColor: AppColor.azul,
+                    activeThumbColor: AppColor.azul,
                     activeTrackColor: AppColor.cinzaMedio,
-                    splashRadius: 50.0,
                     value: _isEntrada,
                     onChanged: (value) => setState(() => _isEntrada = value),
                   ),
@@ -125,11 +117,12 @@ class _FormRegisterState extends State<FormRegister> {
 
   FloatingActionButton buildFloatingActionButton(BuildContext context) {
     return FloatingActionButton.extended(
-      onPressed: () {
+      onPressed: () async {
         if (_globalKey.currentState!.validate()) {
-          _registrarPonto().then((value) {
-            Navigator.pop(context, value);
-          });
+          final success = await _registrarPonto();
+          if (mounted) {
+            Navigator.pop(context, success);
+          }
         }
       },
       label: const Text(
@@ -151,48 +144,45 @@ class _FormRegisterState extends State<FormRegister> {
 
     if (_pickedDate != null) {
       setState(() {
-        _dateController.text = (_pickedDate!.formatBrazilianDate.split(" ")[0]);
+        _dateController.text = _pickedDate!.formatBrazilianDate.split(" ")[0];
         monthSelected = _pickedDate!.month;
       });
     }
   }
 
   Future<void> _selectTime() async {
-    final TimeOfDay? timeOfDay = await showTimePicker(context: context,
-        initialTime: _pickedTime,
-        initialEntryMode : TimePickerEntryMode.dial,
+    final TimeOfDay? timeOfDay = await showTimePicker(
+      context: context,
+      initialTime: _pickedTime,
     );
-    if (timeOfDay != null){
+    if (timeOfDay != null) {
       setState(() {
         _pickedTime = timeOfDay;
-        _timeController.text = "${_pickedTime.hour}:${_pickedTime.minute}";
+        _timeController.text = "${_pickedTime.hour.toString().padLeft(2, '0')}:${_pickedTime.minute.toString().padLeft(2, '0')}";
       });
     }
   }
 
   Future<bool> _registrarPonto() async {
-    FirebaseFirestore db = FirebaseFirestore.instance;
-    bool isEntrada = _isEntrada;
+    final token = SessionService().token;
+    if (token == null) return false;
 
-    final data = <String, dynamic>{
-      "data": '*${_dateController.text}',
-      "hora": _timeController.text,
-      "mes": monthSelected,
-      "ano": year,
-      "entrada": isEntrada,
-    };
+    final registro = Registro(
+      data: '*${_dateController.text}',
+      hora: _timeController.text,
+      mes: monthSelected,
+      ano: year,
+      isEntrada: _isEntrada,
+    );
 
     try {
-      db
-          .collection(kToken)
-          .doc(
-              '${_pickedDate.toString().split(" ")[0]} ${_timeController.text}:${DateTime.now().second.toStringAsFixed(6)}')
-          .set(data);
+      await FirestoreService().registrarPonto(token, registro);
       return true;
     } catch (error) {
-      showSnackBarDefault(context,
-          message: 'Falha ao registrar!\n'
-              '${error.toString()}');
+      if (mounted) {
+        showSnackBarDefault(context,
+            message: 'Falha ao registrar!\n${error.toString()}');
+      }
       return false;
     }
   }

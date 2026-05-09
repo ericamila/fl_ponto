@@ -1,10 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:ponto_eletronico/extensions/date_time.dart';
+import 'package:ponto_eletronico/model/registro.dart';
 import 'package:ponto_eletronico/screens/search.dart';
+import 'package:ponto_eletronico/services/firestore_service.dart';
+import 'package:ponto_eletronico/services/session_service.dart';
 import '../components/confirmation_dialog.dart';
 import '../components/confirmation_dialog_consultar.dart';
-import '../main.dart';
 
 class HomeScreen extends StatefulWidget {
   final String title;
@@ -16,8 +17,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  DateTime registro = DateTime.now();
   String _feedback = '';
+  final _firestoreService = FirestoreService();
+  final _sessionService = SessionService();
 
   @override
   Widget build(BuildContext context) {
@@ -29,12 +31,11 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Padding(
-              padding: EdgeInsets.only(bottom: (_feedback != '') ? 30 : 0),
-              child: (_feedback != '')
-                  ? Text(_feedback, textAlign: TextAlign.center)
-                  : Container(),
-            ),
+            if (_feedback.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 30),
+                child: Text(_feedback, textAlign: TextAlign.center),
+              ),
             ElevatedButton(
                 onPressed: _registrarPonto, child: const Text('Registrar')),
             Padding(
@@ -50,52 +51,53 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  _registrarPonto() async {
-    FirebaseFirestore db = FirebaseFirestore.instance;
-    bool isEntrada = true;
-
-    showConfirmationDialog(
+  Future<void> _registrarPonto() async {
+    final now = DateTime.now();
+    
+    final result = await showConfirmationDialog(
       context,
       negativeOption: 'Entrada',
       affirmativeOption: 'Saída',
       content: 'Registrar Entrada ou Saída?',
-    ).then((value) {
-      if (value != null) {
-        if (value) {
-          isEntrada = !isEntrada;
-        }
+    );
 
-        final data = <String, dynamic>{
-          "data": registro.formatBrazilianDate,
-          "hora": registro.formatBrazilianTime,
-          "mes": registro.month,
-          "entrada": isEntrada,
-        };
+    if (result != null) {
+      final isEntrada = !result; // Assuming true was 'Saída' and false was 'Entrada' in the previous logic
+      
+      final token = _sessionService.token;
+      if (token == null) return;
 
-        db
-            .collection(kToken)
-            .doc(registro.idGeneration)
-            .set(data)
-            .then((value) => setState(() {
-                  _feedback =
-                      '${isEntrada ? 'ENTRADA' : 'SAÍDA'} REGISTRADA:\n '
-                      '${registro.formatBrazilianDate} - ${registro.formatBrazilianTime}';
-                }))
-            .onError((error, stackTrace) => _feedback = error.toString());
+      final novoRegistro = Registro(
+        data: now.formatBrazilianDate,
+        hora: now.formatBrazilianTime,
+        mes: now.month,
+        ano: now.year,
+        isEntrada: isEntrada,
+      );
+
+      try {
+        await _firestoreService.registrarPonto(token, novoRegistro);
+        setState(() {
+          _feedback = '${isEntrada ? 'ENTRADA' : 'SAÍDA'} REGISTRADA:\n '
+              '${now.formatBrazilianDate} - ${now.formatBrazilianTime}';
+        });
+      } catch (error) {
+        setState(() {
+          _feedback = "Erro ao registrar: $error";
+        });
       }
-    });
+    }
   }
 
   void _consultarPonto() async {
-    showConfirmationDialogConsulta(context).then((value) {
-      if (value != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => Consulta(month: value),
-          ),
-        );
-      }
-    });
+    final value = await showConfirmationDialogConsulta(context);
+    if (value != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => Consulta(month: value),
+        ),
+      );
+    }
   }
 }

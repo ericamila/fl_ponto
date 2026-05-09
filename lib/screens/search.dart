@@ -1,53 +1,64 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:ponto_eletronico/components/table.dart';
 import 'package:ponto_eletronico/screens/add.dart';
-import '../main.dart';
+import 'package:ponto_eletronico/services/firestore_service.dart';
+import 'package:ponto_eletronico/services/session_service.dart';
 import '../model/registro.dart';
 import '../util/common.dart';
 import '../util/month.dart';
 
-class Consulta extends StatefulWidget {
+class Consulta extends StatelessWidget {
   final String month;
 
   const Consulta({super.key, required this.month});
 
   @override
-  State<Consulta> createState() => _ConsultaState();
-}
-
-class _ConsultaState extends State<Consulta> {
-  List<TableRow> rows = [];
-  bool isFull = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _populaVazio();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final firestoreService = FirestoreService();
+    final sessionService = SessionService();
+    final mes = Month.string(monthString: month).month;
+    final token = sessionService.token ?? '';
+
     return Scaffold(
       appBar: AppBar(
-          title: Text('Consulta ${widget.month}'),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 18.0),
-              child: status(isFull),
-            )
-          ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(45),
-            child: TableCustom.criaTabela(rows: [
-              (TableCustom.criarLinhaTable(listaDados: "Data, Hora, Registro"))
-            ]),
-          )),
-      body: Padding(
-        padding: const EdgeInsets.only(bottom: 70),
-        child: SingleChildScrollView(
-          child: (rows.isEmpty) ? noData() : TableCustom.criaTabela(rows: rows),
+        title: Text('Consulta $month'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(45),
+          child: TableCustom.criaTabela(rows: [
+            TableCustom.criarLinhaTable(listaDados: "Data, Hora, Registro")
+          ]),
         ),
+      ),
+      body: StreamBuilder<List<Registro>>(
+        stream: firestoreService.getRegistros(token, mes),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text("Erro: ${snapshot.error}"));
+          }
+
+          final registros = snapshot.data ?? [];
+
+          if (registros.isEmpty) {
+            return noData();
+          }
+
+          final rows = registros.map((model) {
+            return TableCustom.criarLinhaTable(
+                listaDados:
+                    "${model.data}, ${model.hora}, ${model.isEntrada ? 'Entrada' : 'Saída'}");
+          }).toList();
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 70),
+            child: SingleChildScrollView(
+              child: TableCustom.criaTabela(rows: rows),
+            ),
+          );
+        },
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: buildFloatingActionButton(context),
@@ -61,7 +72,7 @@ class _ConsultaState extends State<Consulta> {
           context,
           MaterialPageRoute(
             builder: (context) => FormRegister(
-              month: widget.month,
+              month: month,
             ),
           ),
         ).then((value) {
@@ -69,8 +80,7 @@ class _ConsultaState extends State<Consulta> {
             (value == true)
                 ? showSnackBarDefault(context)
                 : showSnackBarDefault(context,
-                message: "Houve uma falha ao registar.");
-            _refresh();
+                    message: "Houve uma falha ao registrar.");
           }
         });
       },
@@ -82,52 +92,9 @@ class _ConsultaState extends State<Consulta> {
     );
   }
 
-  List<TableRow> _populaRows() {
-    FirebaseFirestore db = FirebaseFirestore.instance;
-    const source = Source.serverAndCache; //para registros off-line
-    int mes = Month.string(monthString: widget.month).month;
-    int ano = DateTime.now().year;
-
-    rows = [];
-
-    db
-        .collection(kToken)
-        .where("mes", isEqualTo: mes)
-        .where("ano", isEqualTo: ano)
-        .get(const GetOptions(source: source))
-        .then((event) {
-      for (var doc in event.docs) {
-        Registro model = Registro.fromMap(doc);
-        TableRow row = TableCustom.criarLinhaTable(
-            listaDados:
-                "${model.data}, ${model.hora}, ${model.isEntrada ? 'Entrada' : 'Saída'}");
-        rows.add(row);
-      }
-    }).then(
-      (value) => setState(
-        () {
-          isFull = true;
-        },
-      ),
+  Widget noData() {
+    return const Center(
+      child: Text('Nenhum registro encontrado para este mês.'),
     );
-
-    return rows;
-  }
-
-  List<TableRow> _populaVazio() {
-    _populaRows();
-    setState(() {});
-    return rows;
-  }
-
-  Widget status(bool isFull) {
-    return (isFull)
-        ? const Icon(Icons.calendar_month_outlined)
-        : const CircularProgressIndicator();
-  }
-
-  Future<void> _refresh() async {
-    setState(() {});
-    _populaVazio();
   }
 }

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../util/app_colors.dart';
 
 class TableCustom {
-  static criaTabela({required List<TableRow> rows}) {
+  static Table criaTabela({required List<TableRow> rows}) {
     return Table(
         border: const TableBorder(
           horizontalInside: BorderSide(color: Colors.black),
@@ -13,7 +13,7 @@ class TableCustom {
         children: rows);
   }
 
-  static criarLinhaTable({required String listaDados}) {
+  static TableRow criarLinhaTable({required String listaDados}) {
     return TableRow(
       children: listaDados.split(',').map((name) {
         return Container(
