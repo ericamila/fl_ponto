@@ -26,3 +26,5 @@
 <p align="center">
     <img src="https://skillicons.dev/icons?i=dart,flutter,firebase"  alt="stacks"/>
 </p>
+
+![Screenshot_20260508_223629.png](Screenshot_20260508_223629.png)
